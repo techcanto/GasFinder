@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PetrolFinder - Gasolineras en 50km</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        .control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            z-index: 1000;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            max-width: 300px;
+            backdrop-filter: blur(5px);
+            border: 1px solid #ddd;
+        }
+        .user-coords {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 15px;
+            z-index: 1000;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(5px);
+            border: 1px solid #ddd;
+        }
+        h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .price-tag {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 5px 10px;
+            margin: 3px;
+            border-radius: 5px;
+            font-size: 0.85em;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .regular { border-left: 4px solid #3498db; }
+        .premium { border-left: 4px solid #e74c3c; }
+        .diesel { border-left: 4px solid #2ecc71; }
+        .station-name {
+            font-weight: 600;
+            color: #2980b9;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        .distance-badge {
+            background: #34495e;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+        .loading {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .no-stations {
+            color: #e74c3c;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        .refresh-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9em;
+        }
+        .refresh-btn:hover {
+            background: #2980b9;
+        }
+        .fuel-icon {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="control-panel">
+        <h3><i class="fas fa-gas-pump fuel-icon"></i> PetrolFinder</h3>
+        <div id="stationInfo">
+            <div id="stationCount" class="loading">Buscando gasolineras cercanas...</div>
+            <div id="closestStation"></div>
+            <div id="noStationsMessage" class="no-stations" style="display: none;"></div>
+        </div>
+        <button id="refreshBtn" class="refresh-btn" onclick="window.location.reload()">
+            <i class="fas fa-sync-alt"></i> Actualizar
+        </button>
+    </div>
+    
+    <div class="user-coords">
+        <div id="userLocation">
+            <i class="fas fa-map-marker-alt"></i> <span>Obteniendo ubicación...</span>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
