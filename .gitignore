@@ -1,3 +1,8 @@
 DataExtraction/estaciones.xml
 DataExtraction/precios.xml
-
+DataExtraction/estaciones.xml
+DataExtraction/precios.xml
+DataExtraction/GetLocation.py
+DataExtraction/mapaHtml.txt
+DataExtraction/priceNational.py
+DataExtraction/test.ipynb
