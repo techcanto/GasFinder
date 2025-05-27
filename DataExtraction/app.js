@@ -1,27 +1,29 @@
-// Configuración
+// app.js actualizado con OSRM y rutas paso a paso
+
+console.log("Estoy en app.js de Test1");
+
+
 const CONFIG = {
-    MAX_RADIUS_KM: 50,
+    MAX_RADIUS_KM: 5,
     MAP_ZOOM: 12,
     USER_ICON_URL: 'https://cdn-icons-png.flaticon.com/512/447/447031.png',
     GAS_ICON_URL: 'https://imgs.search.brave.com/Rvv7DohECh3EPbF_pkOcA3AAWcSQB7HAI3VLbeY8q-Y/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy85/Lzk5L0xvZ29fUGV0/ciVDMyVCM2xlb3Nf/TWV4aWNhbm9zLnN2/Zw'
 };
 
-// Variables globales
 let map;
 let userMarker;
 let coverageCircle;
+let routeLine;
+let routeSteps = [];
 let userLat, userLon;
 
-// Inicialización del mapa
 function initMap() {
     map = L.map('map').setView([23.6345, -102.5528], 5);
-    
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
 }
 
-// Iconos personalizados
 function createIcons() {
     const userIcon = L.icon({
         iconUrl: CONFIG.USER_ICON_URL,
@@ -40,181 +42,99 @@ function createIcons() {
     return { userIcon, gasIcon };
 }
 
-// Cargar datos XML
 async function loadXMLFile(filename) {
-    try {
-        const response = await fetch(`${filename}?t=${Date.now()}`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.text();
-    } catch (error) {
-        console.error(`Error loading ${filename}:`, error);
-        throw error;
-    }
+    const response = await fetch(`${filename}?t=${Date.now()}`);
+    if (!response.ok) throw new Error(`Error cargando ${filename}`);
+    return await response.text();
 }
 
-// Procesar datos de gasolineras
 async function loadGasStations() {
-    try {
-        const [locationsText, pricesText] = await Promise.all([
-            loadXMLFile('estaciones.xml'),
-            loadXMLFile('precios.xml')
-        ]);
+    const [locationsText, pricesText] = await Promise.all([
+        loadXMLFile('estaciones.xml'),
+        loadXMLFile('precios.xml')
+    ]);
 
-        const parser = new DOMParser();
-        const locationsDoc = parser.parseFromString(locationsText, "text/xml");
-        const pricesDoc = parser.parseFromString(pricesText, "text/xml");
+    const parser = new DOMParser();
+    const locationsDoc = parser.parseFromString(locationsText, "text/xml");
+    const pricesDoc = parser.parseFromString(pricesText, "text/xml");
 
-        const stations = [];
-        const placeNodes = locationsDoc.getElementsByTagName('place');
+    const stations = [];
+    const placeNodes = locationsDoc.getElementsByTagName('place');
 
-        for (let node of placeNodes) {
-            const placeId = node.getAttribute('place_id');
-            const name = node.getElementsByTagName('name')[0].textContent;
-            const creId = node.getElementsByTagName('cre_id')[0].textContent;
-            const lon = parseFloat(node.getElementsByTagName('x')[0].textContent);
-            const lat = parseFloat(node.getElementsByTagName('y')[0].textContent);
+    for (let node of placeNodes) {
+        const placeId = node.getAttribute('place_id');
+        const name = node.getElementsByTagName('name')[0].textContent;
+        const creId = node.getElementsByTagName('cre_id')[0].textContent;
+        const lon = parseFloat(node.getElementsByTagName('x')[0].textContent);
+        const lat = parseFloat(node.getElementsByTagName('y')[0].textContent);
 
-            // Obtener precios
-            const prices = {};
-            const priceNode = pricesDoc.querySelector(`place[place_id="${placeId}"]`);
-            if (priceNode) {
-                const priceElements = priceNode.getElementsByTagName('gas_price');
-                for (let priceEl of priceElements) {
-                    const type = priceEl.getAttribute('type');
-                    const value = parseFloat(priceEl.textContent);
-                    prices[type] = value;
-                }
+        const prices = {};
+        const priceNode = pricesDoc.querySelector(`place[place_id="${placeId}"]`);
+        if (priceNode) {
+            for (let priceEl of priceNode.getElementsByTagName('gas_price')) {
+                prices[priceEl.getAttribute('type')] = parseFloat(priceEl.textContent);
             }
-
-            stations.push({
-                id: placeId,
-                name,
-                cre_id: creId,
-                lat,
-                lon,
-                prices
-            });
         }
 
-        return stations;
-    } catch (error) {
-        console.error("Error loading station data:", error);
-        throw error;
+        stations.push({ id: placeId, name, cre_id: creId, lat, lon, prices });
     }
+
+    return stations;
 }
 
-// Calcular distancia entre coordenadas
 function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Radio de la Tierra en km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-        Math.sin(dLon/2) * Math.sin(dLon/2);
+        Math.sin(dLat/2)**2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon/2)**2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
 }
 
-// Filtrar gasolineras por distancia
-function filterStationsByDistance(stations, centerLat, centerLon, radiusKm) {
-    return stations.map(station => {
-        const distance = calculateDistance(centerLat, centerLon, station.lat, station.lon);
-        return { ...station, distance };
-    }).filter(station => station.distance <= radiusKm)
-      .sort((a, b) => a.distance - b.distance);
+function filterStationsByDistance(stations, lat, lon, radiusKm) {
+    return stations.map(s => {
+        const dist = calculateDistance(lat, lon, s.lat, s.lon);
+        return { ...s, distance: dist };
+    }).filter(s => s.distance <= radiusKm).sort((a, b) => a.distance - b.distance);
 }
 
-// Formatear precios para mostrar
 function formatPrices(prices) {
-    if (!prices || Object.keys(prices).length === 0) {
-        return '<div class="loading">Precios no disponibles</div>';
-    }
-    
-    let html = '';
-    for (const [type, price] of Object.entries(prices)) {
-        const typeClass = type.toLowerCase();
-        html += `<div class="price-tag ${typeClass}">
-            <i class="fas fa-${typeClass === 'diesel' ? 'oil-can' : 'gas-pump'}"></i>
+    if (!prices || Object.keys(prices).length === 0) return '<div class="loading">Precios no disponibles</div>';
+    return Object.entries(prices).map(([type, price]) => `
+        <div class="price-tag ${type.toLowerCase()}">
+            <i class="fas fa-${type === 'diesel' ? 'oil-can' : 'gas-pump'}"></i>
             ${type.charAt(0).toUpperCase() + type.slice(1)}: $${price.toFixed(2)}
-        </div>`;
-    }
-    return html;
+        </div>
+    `).join('');
 }
 
-// Mostrar gasolineras en el mapa
 function displayStationsOnMap(stations, gasIcon) {
-    // Limpiar marcadores existentes
-    if (window.stationMarkers) {
-        window.stationMarkers.forEach(marker => map.removeLayer(marker));
-    }
-    
+    if (window.stationMarkers) window.stationMarkers.forEach(m => map.removeLayer(m));
     window.stationMarkers = [];
-    
+
     stations.forEach(station => {
-        const popupContent = `
+        const content = `
             <div class="station-name">${station.name}</div>
-            <div class="distance-badge">
-                <i class="fas fa-map-marker-alt"></i> ${station.distance.toFixed(2)} km
-            </div>
-            <div style="margin-top: 8px;">
-                ${formatPrices(station.prices)}
-            </div>
+            <div class="distance-badge">${station.distance.toFixed(2)} km</div>
+            ${formatPrices(station.prices)}
+            <button onclick='drawRouteToClosestStation(${userLat}, ${userLon}, ${JSON.stringify(station).replace(/"/g, "&quot;")})' class="refresh-btn" style="margin-top: 8px; font-size: 0.8em;">
+                <i class="fas fa-route"></i> Ruta a esta
+            </button>
         `;
-        
+
         const marker = L.marker([station.lat, station.lon], { icon: gasIcon })
             .addTo(map)
-            .bindPopup(popupContent);
-        
+            .bindPopup(content);
+
         window.stationMarkers.push(marker);
     });
 }
 
-// Actualizar la interfaz de usuario
-function updateUI(stations, closestStation) {
-    const stationCountElement = document.getElementById('stationCount');
-    const closestStationElement = document.getElementById('closestStation');
-    const noStationsElement = document.getElementById('noStationsMessage');
-    
-    if (stations.length === 0) {
-        stationCountElement.innerHTML = `
-            <strong>Radio de búsqueda:</strong> ${CONFIG.MAX_RADIUS_KM} km
-        `;
-        closestStationElement.innerHTML = '';
-        noStationsElement.style.display = 'block';
-        noStationsElement.innerHTML = `
-            <i class="fas fa-exclamation-circle"></i> No hay gasolineras dentro del radio de ${CONFIG.MAX_RADIUS_KM}km
-        `;
-    } else {
-        noStationsElement.style.display = 'none';
-        stationCountElement.innerHTML = `
-            <strong>Gasolineras cercanas (${CONFIG.MAX_RADIUS_KM}km):</strong> ${stations.length}
-        `;
-        
-        if (closestStation) {
-            closestStationElement.innerHTML = `
-                <hr style="margin: 10px 0;">
-                <div style="font-weight: 500; margin-bottom: 5px;">
-                    <i class="fas fa-star" style="color: #f39c12;"></i> Más cercana:
-                </div>
-                <div style="margin-bottom: 5px;">${closestStation.name}</div>
-                <div class="distance-badge" style="display: inline-block;">
-                    <i class="fas fa-map-marker-alt"></i> ${closestStation.distance.toFixed(2)} km
-                </div>
-                <div style="margin-top: 8px;">
-                    ${formatPrices(closestStation.prices)}
-                </div>
-            `;
-        }
-    }
-}
-
-// Dibujar área de cobertura
 function drawCoverageArea(lat, lon) {
-    if (coverageCircle) {
-        map.removeLayer(coverageCircle);
-    }
-    
+    if (coverageCircle) map.removeLayer(coverageCircle);
     coverageCircle = L.circle([lat, lon], {
         color: '#0078A8',
         fillColor: '#0078A8',
@@ -223,88 +143,103 @@ function drawCoverageArea(lat, lon) {
     }).addTo(map);
 }
 
-// Obtener ubicación del usuario
-async function getUserLocation() {
-    return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-            reject(new Error("Geolocation not supported"));
-            return;
-        }
-        
-        navigator.geolocation.getCurrentPosition(
-            position => resolve(position),
-            error => reject(error),
-            { enableHighAccuracy: true, timeout: 10000 }
-        );
-    });
+async function drawRouteToClosestStation(userLat, userLon, station) {
+    if (routeLine) map.removeLayer(routeLine);
+    routeSteps = [];
+
+    const url = `https://router.project-osrm.org/route/v1/driving/${userLon},${userLat};${station.lon},${station.lat}?overview=full&geometries=geojson&steps=true`;
+    const res = await fetch(url);
+    if (!res.ok) return console.error('Error obteniendo ruta');
+
+    const data = await res.json();
+    const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    routeSteps = data.routes[0].legs[0].steps.map(s => s.maneuver.instruction);
+
+    routeLine = L.polyline(coords, { color: '#e67e22', weight: 4 }).addTo(map);
 }
 
-// Inicializar la aplicación
-async function initApp() {
-    try {
-        // Inicializar mapa
-        initMap();
-        const { userIcon, gasIcon } = createIcons();
-        
-        // Obtener ubicación del usuario
-        const position = await getUserLocation();
-        userLat = position.coords.latitude;
-        userLon = position.coords.longitude;
-        
-        // Actualizar UI de ubicación
-        document.getElementById('userLocation').innerHTML = `
-            <i class="fas fa-map-marker-alt"></i>
-            <span>Lat: ${userLat.toFixed(5)}, Lon: ${userLon.toFixed(5)}</span>
-        `;
-        
-        // Centrar mapa en la ubicación del usuario
-        map.setView([userLat, userLon], CONFIG.MAP_ZOOM);
-        
-        // Añadir marcador del usuario
-        userMarker = L.marker([userLat, userLon], { icon: userIcon })
-            .addTo(map)
-            .bindPopup('<b>Tu ubicacion actual</b>')
-            .openPopup();
-        
-        // Dibujar área de cobertura
-        drawCoverageArea(userLat, userLon);
-        
-        // Cargar y mostrar gasolineras
-        const allStations = await loadGasStations();
-        const nearbyStations = filterStationsByDistance(allStations, userLat, userLon, CONFIG.MAX_RADIUS_KM);
-        
-        // Mostrar en el mapa
-        displayStationsOnMap(nearbyStations, gasIcon);
-        
-        // Encontrar la más cercana
-        const closestStation = nearbyStations.length > 0 ? nearbyStations[0] : null;
-        
-        // Actualizar UI
-        updateUI(nearbyStations, closestStation);
-        
-    } catch (error) {
-        console.error("Error in app initialization:", error);
-        
-        // Manejo de errores
-        document.getElementById('userLocation').innerHTML = `
-            <i class="fas fa-map-marker-alt"></i>
-            <span>Ubicación no disponible</span>
-        `;
-        
-        document.getElementById('stationCount').innerHTML = `
-            <strong>Error al cargar datos</strong>
-        `;
-        
-        // Cargar todas las estaciones como fallback
-        try {
-            const allStations = await loadGasStations();
-            displayStationsOnMap(allStations, gasIcon);
-            updateUI(allStations, null);
-        } catch (e) {
-            console.error("Failed to load stations as fallback:", e);
+
+
+function updateUI(stations, closest) {
+    const sc = document.getElementById('stationCount');
+    const cs = document.getElementById('closestStation');
+    const msg = document.getElementById('noStationsMessage');
+
+    if (stations.length === 0) {
+        sc.innerHTML = `<strong>Radio de búsqueda:</strong> ${CONFIG.MAX_RADIUS_KM} km`;
+        cs.innerHTML = '';
+        msg.style.display = 'block';
+        msg.innerHTML = `<i class="fas fa-exclamation-circle"></i> No hay gasolineras cercanas`;
+    } else {
+        msg.style.display = 'none';
+        sc.innerHTML = `<strong>Gasolineras cercanas (${CONFIG.MAX_RADIUS_KM}km):</strong> ${stations.length}`;
+        if (closest) {
+            cs.innerHTML = `
+                <hr><div><i class="fas fa-star" style="color: #f39c12;"></i> Mas cercana:</div>
+                <div>${closest.name}</div>
+                <div class="distance-badge">${closest.distance.toFixed(2)} km</div>
+                <div>${formatPrices(closest.prices)}</div>
+            `;
         }
     }
 }
 
-// Iniciar la aplicación cuando el DOM esté listo
+async function getUserLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject("Geolocation no disponible");
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true });
+    });
+}
+
+async function initApp() {
+    try {
+        initMap();
+        const { userIcon, gasIcon } = createIcons();
+        const pos = await getUserLocation();
+        userLat = pos.coords.latitude;
+        userLon = pos.coords.longitude;
+
+        document.getElementById('userLocation').innerHTML = `
+            <i class="fas fa-map-marker-alt"></i> Lat: ${userLat.toFixed(5)}, Lon: ${userLon.toFixed(5)}
+        `;
+
+        map.setView([userLat, userLon], CONFIG.MAP_ZOOM);
+        userMarker = L.marker([userLat, userLon], { icon: userIcon }).addTo(map).bindPopup("Tu ubicacion").openPopup();
+        drawCoverageArea(userLat, userLon);
+
+        const allStations = await loadGasStations();
+        const nearbyStations = filterStationsByDistance(allStations, userLat, userLon, CONFIG.MAX_RADIUS_KM);
+        displayStationsOnMap(nearbyStations, gasIcon);
+
+        const closest = nearbyStations[0] || null;
+        updateUI(nearbyStations, closest);
+        if (closest) await drawRouteToClosestStation(userLat, userLon, closest);
+
+    } catch (err) {
+        console.error(err);
+        document.getElementById('userLocation').innerHTML = `<i class="fas fa-map-marker-alt"></i> Ubicacion no disponible`;
+        document.getElementById('stationCount').innerHTML = `<strong>Error al cargar datos</strong>`;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', initApp);
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    const stepsBtn = document.getElementById('showStepsBtn');
+    const stepsContainer = document.getElementById('routeSteps');
+
+    if (stepsBtn) {
+        stepsBtn.addEventListener('click', () => {
+            if (stepsContainer.style.display === 'none') {
+                stepsContainer.innerHTML = routeSteps.length
+                    ? '<strong>Instrucciones:</strong><ol>' + routeSteps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+                    : 'Ruta no disponible.';
+                stepsContainer.style.display = 'block';
+            } else {
+                stepsContainer.style.display = 'none';
+            }
+        });
+    }
+});
+
